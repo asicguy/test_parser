@@ -32,8 +32,6 @@
 //  Avalon streaming out.
 //
 //  Known Issues:
-//  - There is at least one bug in an alignment condition. In my simulations it
-//    runs through a few hundred messages in 12 packets before erroring out.
 //  - No error generation/ packet checking
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -106,20 +104,20 @@ module pkt_parser
     new_bytes = bytes;
     hold_output = '0;
     if (~realign)
-    case (msg_len)
-      1: new_bytes = new_bytes + 5;
-      2: new_bytes = new_bytes + 4;
-      3: new_bytes = new_bytes + 3;
-      4: new_bytes = new_bytes + 2;
-      5: new_bytes = new_bytes + 1;
-      6: new_bytes = new_bytes;
-      7: new_bytes = new_bytes - 1'b1;
-      0: begin
-        new_bytes = new_bytes - 2;
-        hold_output = '1;
-      end
-      default: new_bytes = bytes;
-    endcase // case (msg_len)
+      case (msg_len)
+        1: new_bytes = bytes + 5;
+        2: new_bytes = bytes + 4;
+        3: new_bytes = bytes + 3;
+        4: new_bytes = bytes + 2;
+        5: new_bytes = bytes + 1;
+        6: new_bytes = bytes;
+        7: new_bytes = bytes - 1'b1;
+        0: begin
+          new_bytes  = bytes - 2;
+          hold_output = '1;
+        end
+        default: new_bytes = bytes;
+      endcase // case (msg_len)
   end // always_comb
 
   always_comb begin
@@ -143,19 +141,19 @@ module pkt_parser
     data_packet.ready = '1;
     if (done || sop_hold ||
         (capture_data && ~realign &&
-         (((bytes >= 4)  && (msg_len === 1)) ||
-          ((bytes >= 5)  && (msg_len === 2)) ||
-          ((bytes >= 6)  && (msg_len === 3)) ||
+         (((bytes >=  3) && (msg_len === 0)) ||
+          ((bytes >=  4) && (msg_len === 1)) ||
+          ((bytes >=  5) && (msg_len === 2)) ||
+          ((bytes >=  6) && (msg_len === 3)) ||
           ((bytes === 7) && (msg_len === 4)) ||
-          ((bytes >= 3)  && (msg_len === 0)) ||
-          ((bytes === 0) && (msg_len < 6))
+          ((bytes === 0) && (msg_len <   6))
           )))
       data_packet.ready = '0;
     else
       data_packet.ready = '1;
   end
 
-  assign msg_count_m1 = swap_bytes(data_packet.data[63:48]) - 1'b1;
+  assign msg_count_m1 = data_packet.data[63:48] - 1'b1;
 
   assign message.sop = int_sop & message.valid; // gate SOP when not valid
   assign message.eop = int_eop & message.valid; // gate EOP when not valid
@@ -180,7 +178,7 @@ module pkt_parser
     if (capt_first) begin
       // This is used only on SOP. Capture the message count
       msg_count    <= $signed({1'b0, msg_count_m1});
-      msg_len      <= swap_bytes(data_packet.data[47:32]);
+      msg_len      <= data_packet.data[47:32];
       set_sop      <= '1;
       shift_data   <= data_packet.data << 4*8;
       bytes        <= 4;
@@ -220,44 +218,44 @@ module pkt_parser
       if (realign) begin
         shift_data <= new_data[63:0];
       end else begin
-      case (msg_len)
-        0: begin
-          // boundary crossing case
-          msg_len    <= swap_bytes(new_data[127:112]);
-          shift_data <= new_data[111:48];
-        end
-        1: begin
-          msg_len    <= swap_bytes(new_data[119:104]);
-          shift_data <= new_data[103:40];
-        end
-        2: begin
-          msg_len    <= swap_bytes(new_data[111:96]);
-          shift_data <= new_data[95:32];
-        end
-        3: begin
-          msg_len    <= swap_bytes(new_data[103:88]);
-          shift_data <= new_data[87:24];
-        end
-        4: begin
-          msg_len    <= swap_bytes(new_data[95:80]);
-          shift_data <= new_data[79:16];
-        end
-        5: begin
-          msg_len    <= swap_bytes(new_data[87:72]);
-          shift_data <= new_data[71:8];
-        end
-        6: begin
-          msg_len    <= swap_bytes(new_data[79:64]);
-          shift_data <= new_data[63:0];
-        end
-        7: begin
-          msg_len    <= swap_bytes(new_data[71:56]);
-          shift_data <= {new_data[55:0], 8'b0};
-          if (bytes == 1) realign <= '1;
-        end
-        // Don't count if we are holding off to align data
-        default: if (~(hold_output || realign)) msg_len <= msg_len - 8;
-      endcase // case (msg_len)
+        case (msg_len)
+          0: begin
+            // boundary crossing case
+            msg_len    <= new_data[127:112];
+            shift_data <= new_data[111:48];
+          end
+          1: begin
+            msg_len    <= new_data[119:104];
+            shift_data <= new_data[103:40];
+          end
+          2: begin
+            msg_len    <= new_data[111:96];
+            shift_data <= new_data[95:32];
+          end
+          3: begin
+            msg_len    <= new_data[103:88];
+            shift_data <= new_data[87:24];
+          end
+          4: begin
+            msg_len    <= new_data[95:80];
+            shift_data <= new_data[79:16];
+          end
+          5: begin
+            msg_len    <= new_data[87:72];
+            shift_data <= new_data[71:8];
+          end
+          6: begin
+            msg_len    <= new_data[79:64];
+            shift_data <= new_data[63:0];
+          end
+          7: begin
+            msg_len    <= new_data[71:56];
+            shift_data <= {new_data[55:0], 8'b0};
+            if (bytes == 1) realign <= '1;
+          end
+          // Don't count if we are holding off to align data
+          default: if (~(hold_output || realign)) msg_len <= msg_len - 8;
+        endcase // case (msg_len)
       end
     end // if (capture_data)
 
@@ -273,10 +271,5 @@ module pkt_parser
       parse_cs     <= IDLE;
     end
   end // always_ff @
-
-  function logic [15:0] swap_bytes(input logic [15:0] data_in);
-    //swap_bytes = {data_in[7:0], data_in[15:8]};
-    swap_bytes = data_in;
-  endfunction // swap_bytes
 
 endmodule // pkt_parser
